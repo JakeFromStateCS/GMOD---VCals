@@ -33,7 +33,7 @@ function PANEL:Init()
 
 	self.CloseButton = vgui.Create( "VCals_CloseButton", self );
 	self.CloseButton:SetPos( self:GetWide() - self.CloseButton:GetWide() - 2, 2 );
-	self.Icon = Material( "/vcals/icons/icon_title_garage.png" );
+	self.Icon = Material( "vcals/icons/icon_title_garage.png" );
 	
 	gui.EnableScreenClicker( true );
 end;
@@ -122,5 +122,28 @@ function PANEL:Paint( w, h )
 		TEXT_ALIGN_LEFT,
 		TEXT_ALIGN_BOTTOM
 	);
+end;
+
+function PANEL:OpenDesigner()
+	--Create the icon sidebar
+	self.Sidebar = vgui.Create( "VCals_PrimitiveContainer", self );
+	self.Sidebar:SetPrimitives( VCals.Menu.Primitives.Tab1 );
+
+	--Add the layer container
+	self.LayerContainer = vgui.Create( "VCals_LayerContainer", self );
+	
+	--Create the canvas
+	self.Canvas = vgui.Create( "VCals_Canvas", self );
+
+	self.Toolbar = vgui.Create( "VCals_EditorToolbar", self );
+
+	self.Toolbars = {};
+	for category,_ in pairs( VCals.Editor.Categories ) do
+		print( category );
+		--And the toolbars
+		self.Toolbars[category] = vgui.Create( "VCals_ActionButtonContainer" );
+		self.Toolbars[category]:SetCategory( category );
+		self.Toolbar:AddCategory( self.Toolbars[category] );
+	end;
 end;
 vgui.Register( "VCals_Menu", PANEL );

@@ -42,12 +42,19 @@ MODULE.Primitives = {
 };
 
 function MODULE:OnLoad()
-	if( VCalsMenu ) then
+	if( VCalsMenu and VCalsMenu ~= nil ) then
 		VCalsMenu:Remove();
+		VCalsMenu = nil;
 	end;
 	--Create the global html element for SVGs
 	self:CreateHTML();
 	VCals.Menu = self;
+	concommand.Add("vcals_menu", function(client, cmd, args)
+		self:OpenMenu();
+	end);
+	concommand.Add("vcals_designer", function(client, cmd, args)
+		self:OpenDesigner();
+	end);
 end;
 
 /*
@@ -87,8 +94,9 @@ function MODULE:UpdateHTML( svgSource )
 end;
 
 function MODULE:OpenMenu()
-	if( VCalsMenu ) then
+	if( VCalsMenu and VCalsMenu ~= nil ) then
 		VCalsMenu:Remove();
+		VCalsMenu = nil;
 	end;
 	local menu = vgui.Create( "VCals_Menu" );
 	menu.Sidebar = vgui.Create( "VCals_Sidebar", menu );
@@ -99,52 +107,13 @@ function MODULE:OpenMenu()
 end;
 
 function MODULE:OpenDesigner()
-	if( VCalsMenu ) then
+	if( VCalsMenu and VCalsMenu ~= nil ) then
 		VCalsMenu:Remove();
+		VCalsMenu = nil;
 	end;
-	local menu = vgui.Create( "VCals_Menu" );
-	--Set the title and subtitle
-	menu:SetTitle( "DESIGNER" );
-	menu:SetSubtitle( "NEW SYMBOL" );
-	--Set the background
-	menu:SetBackground( "/vcals/backgrounds/APB_Designer_Plain_Background.png", "smooth" );
-	--Set the close function to open the main menu
-	menu:SetCloseFunction( function( self )
-		self:GetParent():Remove();
-		--VCals.Menu:OpenMenu();
-	end );
-	--Set icon to paintbrush shit
-	menu:SetIcon( "/vcals/replace.png" );
-	--Create the icon sidebar
-	menu.Sidebar = vgui.Create( "VCals_PrimitiveContainer", menu );
-	menu.Sidebar:SetPrimitives( self.Primitives.Tab1 );
-
-	--Add the layer container
-	menu.LayerContainer = vgui.Create( "VCals_LayerContainer", menu );
 	
-	--Create the canvas
-	menu.Canvas = vgui.Create( "VCals_Canvas", menu );
-
-	menu.Toolbar = vgui.Create( "VCals_EditorToolbar", menu );
-
-	menu.Toolbars = {};
-	for category,_ in pairs( VCals.Editor.Categories ) do
-		print( category );
-		--And the toolbars
-		menu.Toolbars[category] = vgui.Create( "VCals_ActionButtonContainer" );
-		menu.Toolbars[category]:SetCategory( category );
-		menu.Toolbar:AddCategory( menu.Toolbars[category] );
-	end;
-
-	--DO THIS LAST
-	--Open the load symbol menu
-	menu.SymbolMenu = vgui.Create( "VCals_LoadSymbolMenu", menu );
-	--Temporarily fill it with nothing
-	menu.SymbolMenu:SetSymbols( {} );
-
-	
-	self.Menu = menu;
-	VCalsMenu = menu;
+	self.Menu = vgui.Create( "VCals_Designer" );
+	VCalsMenu = self.Menu;
 end;
 
 --[[

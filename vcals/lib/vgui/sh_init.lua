@@ -19,11 +19,12 @@ VCals.Vgui.Config = {
 		Loads all the vgui elements necessary
 ]]--
 function VCals.Vgui:Load()
-	local files = file.Find( self.Config.Directory .. "*.lua", "LUA" );
-	for _,file in pairs( files ) do
-		local filePath = self.Config.Directory .. file;
-		VCals:LoadFile( filePath );
-	end;
+	VCals:LoadFolder(self.Config.Directory);
+	-- local files = file.Find( self.Config.Directory .. "*.lua", "LUA" );
+	-- for _,file in pairs( files ) do
+	-- 	local filePath = self.Config.Directory .. file;
+	-- 	VCals:LoadFile( filePath );
+	-- end;
 end;
 
 --Load the vgui elements

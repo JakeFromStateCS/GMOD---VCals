@@ -39,7 +39,7 @@ function PANEL:Init()
 	--Height of the header
 	self.HeaderHeight = 48;
 	self.FooterHeight = 38;
-	self.Icon = Material( "/vcals/icons/icon_title_symbol_load.png", "smooth" );
+	self.Icon = Material( "vcals/icons/icon_title_symbol_load.png", "smooth" );
 	self.IconPadding = 10;
 	self.IconSize = self.HeaderHeight - self.IconPadding;
 
@@ -89,9 +89,16 @@ function PANEL:AddNewSymbolButton()
 		self:GetWide() / 6 - 10,
 		self:GetWide() / 6 - 10
 	);
-	button.Material = Material( "/vcals/icons/new_symbol.png", "smooth" );
+	button.Material = Material( "vcals/icons/new_symbol.png", "smooth" );
 	button:SetTooltip( "New Symbol" );
 	self.SymbolContainer:AddItem( button );
+	button.OnMousePressed = function(self)
+		local parent = self:GetParent();
+		local loadSymbolMenu = parent:GetParent();
+		local menu = loadSymbolMenu:GetParent();
+		loadSymbolMenu.CloseButton:OnMousePressed();
+		menu:OpenDesigner();
+	end;
 end;
 
 function PANEL:Paint( w, h )
