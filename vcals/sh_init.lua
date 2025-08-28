@@ -33,6 +33,23 @@ function VCals:LoadFile( filePath )
     end;
 end;
 
+--[[
+	VCals:LoadFolder(String/filePath):
+		Recursively loads all lua files under a particular directory
+]]--
+function VCals:LoadFolder(filePath)
+	local files, folders = file.Find(filePath .. '*', 'LUA');
+	for _, folder in pairs(folders) do
+		if (folder ~= filePath) then
+			self:LoadFolder(filePath .. folder);
+		end;
+	end;
+
+	for _,file in pairs(files) do
+		self:LoadFile(filePath .. file);
+	end;
+end;
+
 
 function VCals:RunOnLoads()
     for _,libTable in pairs( VCals ) do
