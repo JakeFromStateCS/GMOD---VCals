@@ -1,9 +1,9 @@
-/*
-	Vehicle Decal System
-	JakeFromStateCS
-	Credit to The Maw for helping my dumb ass
-	vcals/sv_init.lua
-*/
+--[[
+    Vehicle Decal System
+    JakeFromStateCS
+    Credit to The Maw for helping my dumb ass
+    vcals/sv_init.lua
+]]--
 --Define our global table
 VCals = {};
 

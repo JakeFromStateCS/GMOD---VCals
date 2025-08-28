@@ -14,10 +14,10 @@ VCals.Config = VCals.Config or {};
 --Create a global decal table
 VCals.Models = VCals.Models or {};
 --This will hold all the functions for parsing VVDs
-VCals.Models.VVD = {};
+VCals.Models.MDL = {};
 VCals.Models.Cache = VCals.Models.Cache or {};
 
-function VCals.Models.VTX:ReadVector(openFile)
+function VCals.Models.MDL:ReadVector(openFile)
     return {
         x = openFile:ReadFloat(),
         y = openFile:ReadFloat(),
@@ -25,7 +25,7 @@ function VCals.Models.VTX:ReadVector(openFile)
     };
 end
 
-function VCals.Models.VVD:ParseHeader( openFile )
+function VCals.Models.MDL:ParseHeader( openFile )
     --Stores the header data to be returned after we read it
     local headers = {
         id = openFile:ReadLong(),
@@ -47,41 +47,38 @@ function VCals.Models.VVD:ParseHeader( openFile )
 end;
 
 --[[
-    VCals.Models.VVD:ParseFixupTable( Stream/openFile ):
+    VCals.Models.MDL:ParseFixupTable( Stream/openFile ):
         Parses the next fixup table in the open file stream
         Returns it as a table
 ]]--
-function VCals.Models.VVD:ParseFixupTable( openFile )
+function VCals.Models.MDL:ParseFixupTable( openFile )
     return {
         lod = openFile:ReadLong(),
-        sourceVertexId = openFile:ReadLong(),
-        numVertices = openFile:ReadLong()
+        sourceVertexID = openFile:ReadLong(),
+        numVertexes = openFile:ReadLong()
     };
 end;
 
 --[[
-    VCals.Models.VVD:ParseFixupTables( Int/numLODs, Stream/openFile ):
+    VCals.Models.MDL:ParseFixupTables( Int/numLODs, Stream/openFile ):
         Parses numLODs number of fixup tables
         Returns them as a table of fixup tables
 ]]--
-function VCals.Models.VVD:ParseFixupTables( modelHeaders, openFile )
+function VCals.Models.MDL:ParseFixupTables( modelHeaders, openFile )
     local fixupTables = {};
-    local fixupTableBase = modelHeaders.fixupTableStart;
     openFile:Seek(modelHeaders.fixupTableStart);
-    for lodIndex = 0, modelHeaders.numLODs - 1 do
-        local fixupOffset = fixupTableBase + (lodIndex * 3);
-        openFile:Seek(fixupOffset);
-        fixupTables[lodIndex+1] = self:ParseFixupTable(openFile);
+    for lodIndex = 1, modelHeaders.numLODs do
+        fixupTables[lodIndex] = self:ParseFixupTable(openFile);
     end;
     return fixupTables;
 end;
 
 --[[
-    VCals.Models.VVD:ParseVertex( Stream/openFile ):
+    VCals.Models.MDL:ParseVertex( Stream/openFile ):
         Parses the next vertex in the file stream
         Returns it as a table
 ]]--
-function VCals.Models.VVD:ParseVertex( openFile )
+function VCals.Models.MDL:ParseVertex( openFile )
     --Skip the first 16 bytes since it's bone weight and we don't care about that
     openFile:Read( 16 );
     return {
@@ -95,11 +92,11 @@ function VCals.Models.VVD:ParseVertex( openFile )
             openFile:ReadFloat(),
             openFile:ReadFloat()
         ),
-        texCoord = { u = openFile:ReadFloat(), v = openFile:ReadFloat() },
+        texCoord = { u = openFile:ReadFloat(), v = openFile:ReadFloat() }
     };
 end;
 
-function VCals.Models.VVD:ParseVertexes(modelData, openFile)
+function VCals.Models.MDL:ParseVertexes(modelData, openFile)
     -- Get the start byte of our vertex data
     -- We're going to use this to seek to the beginning of the vertex data
     local vertexDataStart = modelData.headers.vertexDataStart;
@@ -108,7 +105,7 @@ function VCals.Models.VVD:ParseVertexes(modelData, openFile)
     for _ = 1, modelData.headers.numLODVertexes[1] do
         table.insert(
             vertexes,
-            self:ParseVertex(openFile)
+            self:ParseVertex( openFile )
         );
         --print(fixupTableIndex, numVertexes);
         ----for _ = 1, numVertexes do
@@ -130,10 +127,26 @@ function VCals.Models.VVD:ParseVertexes(modelData, openFile)
 end;
 
 --[[
-    VCals.Models.VVD:Parse( String/fileName ):
+    VCals.Models.MDL:Parse( String/fileName ):
         Parses the .vtx file for the visual mesh
 ]]--
-function VCals.Models.VVD:Parse( fileName )
+function VCals.Models.MDL:Parse( fileName )
+    local vvdFilePath = fileName.replace('.mdl', '.vvd');
+    local vtxFilePath = fileName.replace('.mdl', '.vtx');
+    if (file.Exists(vvdFilePath) == false) then
+        VCals.Debug:Print(Color( 255, 255, 0 ), "Unable to read file: " .. vvdFilePath);
+        return;
+    end
+
+    if (file.Exists(vtxFilePath) == false) then
+        -- Look for the file path with a dx90 prefix
+        vtxFilePath = vtxFilePath.replace('.vtx', '.dx90.vtx');
+        if (file.Exists(vtxFilePath) == false) then
+            VCals.Debug:Print( Color( 255, 255, 0 ), "Unable to read file: " .. vtxFilePath );
+            return;
+        end
+    end
+
     --Open the file in binary mode
     local openFile = file.Open( fileName, "rb", "GAME" );
     if (openFile == nil) then
@@ -145,57 +158,14 @@ function VCals.Models.VVD:Parse( fileName )
     };
     -- We can only parse fixups if we have LODs
     --print('Parsing fixup tables...');
-    local fixupTables = {};
-    local headers = modelData.headers;
-    if (headers.numFixups > 0) then
-        openFile:Seek(headers.fixupTableStart);
-        for fixupIndex = 1, headers.numFixups do
-            fixupTables[fixupTableIndex] = self:ParseFixupTable(openFile);
-        end;
-    end;
-    local targetLod = 0;
-    local fixupCount = headers.numLODVertexes[targetLod + 1] or 0;
-    local remap = {};
-    if (headers.numFixups > 0) then
-        local out = 0;
-        for fixupIndex = 1, headers.numFixups do
-            local fixup = fixupTables[fixupIndex];
-            if (fixup.lod <= targetLod) then
-                for vertexIndex = 0, fixup.numVertices - 1 do
-                    out = out + 1;
-                    remap[out] = fixup.sourceVertexId + vertexIndex;
-                    if (out == fixupCount) then break end;
-                end;
-            end;
-            if #remap == fixupCount then break end;
-        end;
-    else
-        for fixupIndex = 1, fixupCount do
-            remap[fixupIndex] = fixupIndex - 1;
-        end;
-    end;
-    local vertexes = {};
-    for vertexIndex = 1, #remap do
-        local mappedVertexIndex = remap[vertexIndex];
-        local vertexOffsetBase = headers.vertexDataStart;
-        local vertexOffset = vertexOffsetBase + mappedVertexIndex * 48;
-        openFile:Seek(vertexOffset);
-        local vertex = self:ParseVertex(openFile);
-        vertex.mappedIndex = mappedVertexIndex;
-        vertexes[mappedVertexIndex] = vertex;
-        -- TODO: Seek here based on mappedVertexIndex
-        --  Then parse the vertex
-        --vertexes[vertexIndex] =
-    end;
     --modelData.fixupTables = self:ParseFixupTables(
     --    modelData.headers,
     --    openFile
-    --
-    modelData.vertices = vertexes;
-    --modelData.vertexes = self:ParseVertexes(
-    --    modelData,
-    --    openFile
     --);
+    modelData.vertexes = self:ParseVertexes(
+        modelData,
+        openFile
+    );
 
     return modelData;
 end;

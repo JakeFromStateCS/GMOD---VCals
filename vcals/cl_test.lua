@@ -1,0 +1,297 @@
+--========================================
+-- Möller–Trumbore that returns (t, u, v)
+--========================================
+local function rayTri(ox,oy,oz, dx,dy,dz, t)
+    local ax,ay,az,bx,by,bz,cx,cy,cz = t.ax,t.ay,t.az, t.bx,t.by,t.bz, t.cx,t.cy,t.cz
+    local e1x,e1y,e1z = bx-ax, by-ay, bz-az
+    local e2x,e2y,e2z = cx-ax, cy-ay, cz-az
+
+    local px,py,pz = dy*e2z - dz*e2y, dz*e2x - dx*e2z, dx*e2y - dy*e2x
+    local det = e1x*px + e1y*py + e1z*pz
+    if det > -1e-8 and det < 1e-8 then return nil end -- parallel
+    local invDet = 1/det
+
+    local tx,ty,tz = ox-ax, oy-ay, oz-az
+    local u = (tx*px + ty*py + tz*pz) * invDet
+    if u < 0 or u > 1 then return nil end
+
+    local qx,qy,qz = ty*e1z - tz*e1y, tz*e1x - tx*e1z, tx*e1y - ty*e1x
+    local v = (dx*qx + dy*qy + dz*qz) * invDet
+    if v < 0 or u+v > 1 then return nil end
+
+    local tdist = (e2x*qx + e2y*qy + e2z*qz) * invDet
+    if tdist <= 0 then return nil end
+
+    return tdist, u, v
+end
+
+--========================================
+-- Buckets for ROI (unchanged)
+--========================================
+local function makeScreenBucketsROI(tris, cols, rows, roiX, roiY, roiW, roiH)
+    local W,H = ScrW(), ScrH()
+    roiX = math.max(0, math.min(roiX, W-1))
+    roiY = math.max(0, math.min(roiY, H-1))
+    roiW = math.max(1, math.min(roiW, W - roiX))
+    roiH = math.max(1, math.min(roiH, H - roiY))
+
+    local cellW, cellH = roiW/cols, roiH/rows
+    local buckets = {}
+    for ix=0,cols-1 do
+        buckets[ix] = {}
+        for iy=0,rows-1 do buckets[ix][iy] = {} end
+    end
+
+    for ti,t in ipairs(tris) do
+        local sa = Vector(t.ax,t.ay,t.az):ToScreen()
+        local sb = Vector(t.bx,t.by,t.bz):ToScreen()
+        local sc = Vector(t.cx,t.cy,t.cz):ToScreen()
+
+        if sa.visible or sb.visible or sc.visible then
+            local triMinX = math.min(sa.x,sb.x,sc.x)
+            local triMaxX = math.max(sa.x,sb.x,sc.x)
+            local triMinY = math.min(sa.y,sb.y,sc.y)
+            local triMaxY = math.max(sa.y,sb.y,sc.y)
+
+            local minXpx = math.max(triMinX, roiX)
+            local maxXpx = math.min(triMaxX, roiX + roiW - 1)
+            local minYpx = math.max(triMinY, roiY)
+            local maxYpx = math.min(triMaxY, roiY + roiH - 1)
+
+            if maxXpx >= minXpx and maxYpx >= minYpx then
+                local minix = math.max(0, math.min(cols-1, math.floor((minXpx - roiX) / cellW)))
+                local maxix = math.max(0, math.min(cols-1, math.floor((maxXpx - roiX) / cellW)))
+                local miniy = math.max(0, math.min(rows-1, math.floor((minYpx - roiY) / cellH)))
+                local maxiy = math.max(0, math.min(rows-1, math.floor((maxYpx - roiY) / cellH)))
+
+                for ix=minix,maxix do
+                    for iy=miniy,maxiy do
+                        local cell = buckets[ix][iy]
+                        cell[#cell+1] = ti
+                    end
+                end
+            end
+        end
+    end
+
+    return buckets, cellW, cellH, roiX, roiY
+end
+
+--========================================
+-- Project ROI grid -> interpolate mesh normals at hits
+--========================================
+local function projectScreenPatchToMesh(tris, cols, rows, roiPixelW, roiPixelH, maxDist)
+    maxDist = maxDist or 32768
+    local W,H = ScrW(), ScrH()
+    local cx, cy = W*0.5, H*0.5
+    local roiW, roiH = roiPixelW, roiPixelH
+    local roiX, roiY = cx - roiW*0.5, cy - roiH*0.5
+
+    local buckets, cellW, cellH, rx, ry = makeScreenBucketsROI(tris, cols, rows, roiX, roiY, roiW, roiH)
+    local origin = EyePos()
+
+    local function vindex(ix,iy) return iy*cols + ix + 1 end
+    local verts = {}
+
+    for iy=0,rows-1 do
+        for ix=0,cols-1 do
+            local px = rx + (ix + 0.5) * cellW
+            local py = ry + (iy + 0.5) * cellH
+            local dir = gui.ScreenToVector(px, py)
+            local dx,dy,dz = dir.x, dir.y, dir.z
+
+            local best = nil
+            local cellTris = buckets[ix][iy]
+            for _,ti in ipairs(cellTris) do
+                local tdist,u,v = rayTri(origin.x,origin.y,origin.z, dx,dy,dz, tris[ti])
+                if tdist and tdist < (best and best.t or 1e30) and tdist < maxDist then
+                    best = { t=tdist, u=u, v=v, ti=ti }
+                end
+            end
+
+            if best then
+                local hit = Vector(origin.x + dx*best.t, origin.y + dy*best.t, origin.z + dz*best.t)
+
+                -- interpolate per-vertex normals using barycentrics
+                local tri = tris[best.ti]
+                local w = 1 - best.u - best.v
+                local nx = w*tri.anx + best.u*tri.bnx + best.v*tri.cnx
+                local ny = w*tri.any + best.u*tri.bny + best.v*tri.cny
+                local nz = w*tri.anz + best.u*tri.bnz + best.v*tri.cnz
+                -- normalize
+                local nlen = math.sqrt(nx*nx + ny*ny + nz*nz)
+                if nlen > 0 then nx,ny,nz = nx/nlen, ny/nlen, nz/nlen else nx,ny,nz = 0,0,1 end
+
+                -- keep normal in same hemisphere as the face normal (prevents inward flips)
+                do
+                    local e1x,e1y,e1z = tri.bx - tri.ax, tri.by - tri.ay, tri.bz - tri.az
+                    local e2x,e2y,e2z = tri.cx - tri.ax, tri.cy - tri.ay, tri.cz - tri.az
+                    local fnx = e1y*e2z - e1z*e2y
+                    local fny = e1z*e2x - e1x*e2z
+                    local fnz = e1x*e2y - e1y*e2x
+                    if nx*fnx + ny*fny + nz*fnz < 0 then
+                        nx,ny,nz = -nx,-ny,-nz
+                    end
+                end
+                local normal = Vector(nx,ny,nz);
+                -- Move the hit position out to stop z fighting
+                local pos = hit - normal * 0.5;
+                verts[vindex(ix,iy)] = {
+                    pos = pos,
+                    normal = normal,   -- outward-from-mesh normal
+                    u = ix/(cols-1),
+                    v = iy/(rows-1)
+                }
+            else
+                verts[vindex(ix,iy)] = false
+            end
+        end
+    end
+
+    -- triangulate the grid (skip holes)
+    local out = {}
+    for iy=0,rows-2 do
+        for ix=0,cols-2 do
+            local a = verts[vindex(ix,  iy)]
+            local b = verts[vindex(ix+1,iy)]
+            local c = verts[vindex(ix,  iy+1)]
+            local d = verts[vindex(ix+1,iy+1)]
+            if a and b and c then out[#out+1]=a; out[#out+1]=b; out[#out+1]=c end
+            if b and d and c then out[#out+1]=b; out[#out+1]=d; out[#out+1]=c end
+        end
+    end
+    return out
+end
+
+
+
+-- tris: your world-space target triangles { {ax,ay,az, bx,by,bz, cx,cy,cz}, ... }
+-- e.g., built from your VTX/VVD positions with Entity:LocalToWorld on each vertex.
+local modelMaterial = 'models/wireframe.vtf';
+modelMaterial = 'models/debug/debugwhite.vtf'
+local modelPath = 'models/crawler/energy_wheel.mdl';
+--modelPath = 'models/props_c17/furniturestove001a.mdl';
+modelPath = 'models/tdmcars/gtaiv_airtug.mdl';
+modelPath = 'models/props_vehicles/van001a_physics.mdl';
+modelPath = 'models/props_junk/TrashDumpster01a.mdl';
+modelPath = 'models/props_borealis/bluebarrel001.mdl';
+modelPath = 'models/tdmcars/vol_850r.mdl';
+
+if (not rebuiltTriangles or not globalModelPath or globalModelPath ~= modelPath) then
+    visualModels = util.GetModelMeshes(modelPath);
+    rebuiltTriangles = visualModels[1].triangles;
+    globalModelPath = modelPath;
+    modelMaterial = visualModels[1].material;
+end
+
+--========================================
+-- Build target triangles with per-vertex normals (from VVD)
+--========================================
+local globalTargetTris = {}
+for i = 1, #rebuiltTriangles, 3 do
+    local A = rebuiltTriangles[i]
+    local B = rebuiltTriangles[i+1]
+    local C = rebuiltTriangles[i+2]
+
+    -- positions
+    local ax,ay,az = A.pos.x, A.pos.y, A.pos.z
+    local bx,by,bz = B.pos.x, B.pos.y, B.pos.z
+    local cx,cy,cz = C.pos.x, C.pos.y, C.pos.z
+
+    -- face normal (to cull degenerates and for hemisphere fix later)
+    local e1x,e1y,e1z = bx-ax, by-ay, bz-az
+    local e2x,e2y,e2z = cx-ax, cy-ay, cz-az
+    local fnx = e1y*e2z - e1z*e2y
+    local fny = e1z*e2x - e1x*e2z
+    local fnz = e1x*e2y - e1y*e2x
+    local fl2 = fnx*fnx + fny*fny + fnz*fnz
+    if fl2 > 1e-12 then
+        globalTargetTris[#globalTargetTris+1] = {
+            -- positions
+            ax=ax, ay=ay, az=az,
+            bx=bx, by=by, bz=bz,
+            cx=cx, cy=cy, cz=cz,
+            -- per-vertex normals from VVD
+            anx=A.normal.x, any=A.normal.y, anz=A.normal.z,
+            bnx=B.normal.x, bny=B.normal.y, bnz=B.normal.z,
+            cnx=C.normal.x, cny=C.normal.y, cnz=C.normal.z,
+        }
+    end
+end
+
+if (globalMeshWrapped ~= nil and globalMeshWrapped:IsValid()) then
+    globalMeshWrapped:Destroy()
+    globalMeshWrapped = nil;
+end;
+local wrappedMaterialPath = 'models/wireframe';
+wrappedMaterialPath = 'brick/brick_model';
+local wrappedMaterial = Material(wrappedMaterialPath);
+local cols, rows = 32, 32;--80, 45   -- tune for speed/quality
+local roiW, roiH   = 256, 256
+local projected = projectScreenPatchToMesh(globalTargetTris, cols, rows, roiW, roiH)
+
+globalMeshWrapped = Mesh(wrappedMaterial)
+globalMeshWrapped:BuildFromTriangles(projected)
+
+
+--[[
+    End of new code
+]]--
+---- Render it
+local client = LocalPlayer();
+local meshMaterial = Material(modelMaterial);
+if (globalMesh ~= nil and globalMesh:IsValid()) then
+    globalMesh:Destroy()
+    globalMesh = nil;
+end;
+if (globalMesh == nil) then
+    globalMesh = Mesh(meshMaterial);
+    globalMesh:BuildFromTriangles(rebuiltTriangles);
+end;
+
+local baseMeshColor = Color(1, 1, 1);
+local gridColor = Color(1, 1, 1);
+hook.Add(
+        "PostDrawOpaqueRenderables",
+        "TestFunc",
+        function()
+            if (globalMesh ~= nil and globalMesh:IsValid() and globalMeshWrapped ~= nil and globalMeshWrapped:IsValid()) then
+                local ang = Angle(0, 0, 0);
+                --ang = client:EyeAngles();
+                local pos = client:GetPos() + client:GetForward() * 100 + client:GetUp() * 50;
+                pos = Vector(0, 0, 0);
+                local posMatrix = Matrix();
+                posMatrix:Translate(pos);
+                posMatrix:SetAngles(ang);
+
+                --Suppress the engine lighting so it doesn't fuck shit up
+                --render.SuppressEngineLighting(true);
+                --render.SetLightingOrigin(Vector(0, 0, 0));
+                --render.ResetModelLighting( baseMeshColor.r, baseMeshColor.g, baseMeshColor.b );
+                --render.SetColorModulation( baseMeshColor.r, baseMeshColor.g, baseMeshColor.b );
+                --render.SetBlend( 1 );
+                for i = 0, 6 do
+                    render.SetModelLighting( baseMeshColor.r, baseMeshColor.g, baseMeshColor.b, 1 );
+                end
+
+                --Update the render matrix
+                cam.PushModelMatrix( posMatrix );
+                render.SetMaterial( meshMaterial );
+                --Draw our mesh
+                globalMesh:Draw();
+                --render.ResetModelLighting( gridColor.r, gridColor.g, gridColor.b );
+                --render.SetColorModulation( gridColor.r, gridColor.g, gridColor.b );
+                --render.SetBlend( 1 );
+                for i = 0, 6 do
+                    --render.SetModelLighting( gridColor.r, gridColor.g, gridColor.b, 1 );
+                end
+                --render.SetColorModulation( gridColor.r, gridColor.g, gridColor.b );
+                render.SetMaterial( wrappedMaterial );
+                globalMeshWrapped:Draw();
+                --Go back to the normal rendering
+                cam.PopModelMatrix();
+                --Turn engine lighting back on
+                --render.SuppressEngineLighting( false );
+            end
+        end
+)
