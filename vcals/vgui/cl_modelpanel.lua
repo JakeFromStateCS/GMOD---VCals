@@ -138,22 +138,22 @@ function PANEL:Paint( w, h )
 
     cam.Start3D( self.vCamPos, ang, self.fFOV, x, y, w, h, 5, self.FarZ )
 
-    render.SuppressEngineLighting( true )
-    render.SetLightingOrigin( self.Entity:GetPos() )
-    render.ResetModelLighting( self.colAmbientLight.r / 255, self.colAmbientLight.g / 255, self.colAmbientLight.b / 255 )
-    render.SetColorModulation( self.colColor.r / 255, self.colColor.g / 255, self.colColor.b / 255 )
-    render.SetBlend( ( self:GetAlpha() / 255 ) * ( self.colColor.a / 255 ) )
+        render.SuppressEngineLighting( true )
+        render.SetLightingOrigin( self.Entity:GetPos() )
+        render.ResetModelLighting( self.colAmbientLight.r / 255, self.colAmbientLight.g / 255, self.colAmbientLight.b / 255 )
+        render.SetColorModulation( self.colColor.r / 255, self.colColor.g / 255, self.colColor.b / 255 )
+        render.SetBlend( ( self:GetAlpha() / 255 ) * ( self.colColor.a / 255 ) )
 
-    for i = 0, 6 do
-        local col = self.DirectionalLight[ i ]
-        if ( col ) then
-            render.SetModelLighting( i, col.r / 255, col.g / 255, col.b / 255 )
+        for i = 0, 6 do
+            local col = self.DirectionalLight[ i ]
+            if ( col ) then
+                render.SetModelLighting( i, col.r / 255, col.g / 255, col.b / 255 )
+            end
         end
-    end
 
-    self:DrawModel()
+        self:DrawModel()
 
-    render.SuppressEngineLighting( false )
+        render.SuppressEngineLighting( false )
     cam.End3D()
 
     self.LastPaint = RealTime()
